@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     cost_source TEXT,
     pricing_version TEXT,
     title TEXT,
+    cwd TEXT,
     FOREIGN KEY (parent_session_id) REFERENCES sessions(id)
 );
 
@@ -189,6 +190,12 @@ class SessionDB:
                     except sqlite3.OperationalError:
                         pass
                 cursor.execute("UPDATE schema_version SET version = 5")
+            if current_version < 6:
+                try:
+                    cursor.execute('ALTER TABLE sessions ADD COLUMN "cwd" TEXT')
+                except sqlite3.OperationalError:
+                    pass  # Column already exists
+                cursor.execute("UPDATE schema_version SET version = 6")
 
         # Unique title index — always ensure it exists (safe to run after migrations
         # since the title column is guaranteed to exist at this point)
@@ -228,13 +235,14 @@ class SessionDB:
         system_prompt: str = None,
         user_id: str = None,
         parent_session_id: str = None,
+        cwd: str = None,
     ) -> str:
         """Create a new session record. Returns the session_id."""
         with self._lock:
             self._conn.execute(
                 """INSERT INTO sessions (id, source, user_id, model, model_config,
-                   system_prompt, parent_session_id, started_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   system_prompt, parent_session_id, started_at, cwd)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     session_id,
                     source,
@@ -244,6 +252,7 @@ class SessionDB:
                     system_prompt,
                     parent_session_id,
                     time.time(),
+                    cwd,
                 ),
             )
             self._conn.commit()
@@ -333,6 +342,27 @@ class SessionDB:
         with self._lock:
             cursor = self._conn.execute(
                 "SELECT * FROM sessions WHERE id = ?", (session_id,)
+            )
+            row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def get_most_recent_session_by_dir(self, cwd: str, source: str = "cli") -> Optional[Dict[str, Any]]:
+        """Find the most recent session for a given working directory.
+
+        Args:
+            cwd: The working directory to search for.
+            source: Only match sessions from this source (default: "cli").
+
+        Returns:
+            The most recent session dict for the directory, or None if none found.
+        """
+        with self._lock:
+            cursor = self._conn.execute(
+                """SELECT * FROM sessions
+                   WHERE source = ? AND cwd = ?
+                   ORDER BY started_at DESC
+                   LIMIT 1""",
+                (source, cwd),
             )
             row = cursor.fetchone()
         return dict(row) if row else None

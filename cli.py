@@ -1006,7 +1006,7 @@ class HermesCLI:
         max_turns: int = None,
         verbose: bool = False,
         compact: bool = False,
-        resume: str = None,
+        resume: bool | str = False,
         checkpoints: bool = False,
         pass_session_id: bool = False,
     ):
@@ -1022,7 +1022,9 @@ class HermesCLI:
             max_turns: Maximum tool-calling iterations shared with subagents (default: 90)
             verbose: Enable verbose logging
             compact: Use compact display mode
-            resume: Session ID to resume (restores conversation history from SQLite)
+            resume: Session ID to resume, or True to auto-detect the most recent
+                    CLI session in the current working directory (restores conversation
+                    history from SQLite)
             pass_session_id: Include the session ID in the agent's system prompt
         """
         # Initialize Rich console
@@ -2807,6 +2809,7 @@ class HermesCLI:
                             "max_iterations": self.max_turns,
                             "reasoning_config": self.reasoning_config,
                         },
+                        cwd=os.getenv("TERMINAL_CWD") or os.getcwd(),
                     )
                 except Exception:
                     pass
@@ -7147,7 +7150,7 @@ def main(
     list_tools: bool = False,
     list_toolsets: bool = False,
     gateway: bool = False,
-    resume: str = None,
+    resume: bool | str = False,
     worktree: bool = False,
     w: bool = False,
     checkpoints: bool = False,
@@ -7170,7 +7173,9 @@ def main(
         compact: Use compact display mode
         list_tools: List available tools and exit
         list_toolsets: List available toolsets and exit
-        resume: Resume a previous session by its ID (e.g., 20260225_143052_a1b2c3)
+        resume: Resume a previous session. Pass a session ID to resume that specific
+                session, or use --resume with no argument to automatically find and
+                resume the most recent CLI session in the current working directory.
         worktree: Run in an isolated git worktree (for parallel agents). Alias: -w
         w: Shorthand for --worktree
     
@@ -7180,7 +7185,8 @@ def main(
         python cli.py --skills hermes-agent-dev,github-auth
         python cli.py -q "What is Python?"       # Single query mode
         python cli.py --list-tools               # List tools and exit
-        python cli.py --resume 20260225_143052_a1b2c3  # Resume session
+        python cli.py --resume                   # Auto-detect and resume most recent session in cwd
+        python cli.py --resume 20260225_143052_a1b2c3  # Resume specific session
         python cli.py -w                         # Start in isolated git worktree
         python cli.py -w -q "Fix issue #123"     # Single query in worktree
     """
@@ -7249,6 +7255,30 @@ def main(
     
     parsed_skills = _parse_skills_argument(skills)
 
+    # Determine resume session: --resume with no argument triggers auto-detection
+    # based on the current working directory.
+    _resolved_resume: bool | str = False
+    if resume is True:
+        # Auto-detect: find the most recent CLI session for this directory.
+        try:
+            from hermes_state import SessionDB
+            _db = SessionDB()
+            _cwd = os.getenv("TERMINAL_CWD") or os.getcwd()
+            _matched = _db.get_most_recent_session_by_dir(_cwd, source="cli")
+            if _matched:
+                _resolved_resume = _matched["id"]
+                print(f"[resume] Found prior session for '{_cwd}': {_matched['id']}")
+                if _matched.get("title"):
+                    print(f"[resume] Session title: {_matched['title']}")
+            else:
+                print(f"[resume] No prior session found for '{_cwd}'.")
+                print(f"[resume] Starting a fresh session. Use --resume <session_id> to resume a specific session.")
+        except Exception as e:
+            print(f"[resume] Could not auto-detect session: {e}")
+            print(f"[resume] Starting a fresh session.")
+    elif isinstance(resume, str):
+        _resolved_resume = resume
+
     # Create CLI instance
     cli = HermesCLI(
         model=model,
@@ -7259,7 +7289,7 @@ def main(
         max_turns=max_turns,
         verbose=verbose,
         compact=compact,
-        resume=resume,
+        resume=_resolved_resume,
         checkpoints=checkpoints,
         pass_session_id=pass_session_id,
     )
