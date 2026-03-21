@@ -465,7 +465,9 @@ def cmd_chat(args):
     # Resolve --resume by title if it's not a direct session ID
     resume_val = getattr(args, "resume", None)
     if resume_val is True:
-        # Bare --resume (no argument): auto-detect the most recent session for cwd
+        # Bare --resume (no argument): auto-detect the most recent session for cwd,
+        # falling back to the most recent CLI session overall (handles pre-migration
+        # sessions that have no cwd stored).
         try:
             from hermes_state import SessionDB
             _db = SessionDB()
@@ -477,9 +479,16 @@ def cmd_chat(args):
                 if _matched.get("title"):
                     print(f"[resume] Session title: {_matched['title']}")
             else:
-                print(f"[resume] No prior session found for '{_cwd}'.")
-                print(f"[resume] Starting a fresh session. Use --resume <session_id> to resume a specific session.")
-                args.resume = None
+                # No cwd match — fall back to overall most recent CLI session
+                _last_id = _resolve_last_cli_session()
+                if _last_id:
+                    args.resume = _last_id
+                    print(f"[resume] No prior session for '{_cwd}'.")
+                    print(f"[resume] Resuming most recent session instead: {_last_id}")
+                else:
+                    print(f"[resume] No prior session found.")
+                    print(f"[resume] Starting a fresh session. Use --resume <session_id> to resume a specific session.")
+                    args.resume = None
         except Exception as _e:
             print(f"[resume] Could not auto-detect session: {_e}")
             print(f"[resume] Starting a fresh session.")
