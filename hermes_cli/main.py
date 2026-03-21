@@ -3783,7 +3783,12 @@ For more help on a command:
                 print("No sessions found.")
                 return
             has_titles = any(s.get("title") for s in sessions)
-            if has_titles:
+            has_cwds = any(s.get("cwd") for s in sessions)
+            # Show cwd column only when at least one session has it set
+            if has_cwds:
+                print(f"{'Title' if has_titles else 'Preview':<30} {'Cwd':<35} {'Last Active':<13} {'ID'}")
+                print("─" * 110)
+            elif has_titles:
                 print(f"{'Title':<32} {'Preview':<40} {'Last Active':<13} {'ID'}")
                 print("─" * 110)
             else:
@@ -3791,14 +3796,17 @@ For more help on a command:
                 print("─" * 95)
             for s in sessions:
                 last_active = _relative_time(s.get("last_active"))
-                preview = s.get("preview", "")[:38] if has_titles else s.get("preview", "")[:48]
-                if has_titles:
+                cwd = s.get("cwd") or ""
+                if has_cwds:
+                    preview = (s.get("title") or s.get("preview", ""))[:28] if has_titles else (s.get("preview") or "")[:28]
+                    print(f"{preview:<30} {cwd:<35} {last_active:<13} {s['id']}")
+                elif has_titles:
                     title = (s.get("title") or "—")[:30]
-                    sid = s["id"]
-                    print(f"{title:<32} {preview:<40} {last_active:<13} {sid}")
+                    preview = s.get("preview", "")[:38]
+                    print(f"{title:<32} {preview:<40} {last_active:<13} {s['id']}")
                 else:
-                    sid = s["id"]
-                    print(f"{preview:<50} {last_active:<13} {s['source']:<6} {sid}")
+                    preview = s.get("preview", "")[:48]
+                    print(f"{preview:<50} {last_active:<13} {s['source']:<6} {s['id']}")
 
         elif action == "export":
             if args.session_id:
