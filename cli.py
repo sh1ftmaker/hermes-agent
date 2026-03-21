@@ -7219,8 +7219,21 @@ def main(
                 if _matched.get("title"):
                     print(f"[resume] Session title: {_matched['title']}")
             else:
-                print(f"[resume] No prior session found for '{_cwd}'.")
-                print(f"[resume] Starting a fresh session. Use --resume <session_id> to resume a specific session.")
+                # No cwd match — fall back to overall most recent CLI session
+                _last_id = None
+                try:
+                    _last_id = _db.resolve_session_id(
+                        _db.list_sessions_rich(source="cli", limit=1)[0]["id"]
+                    ) if _db.list_sessions_rich(source="cli", limit=1) else None
+                except Exception:
+                    pass
+                if _last_id:
+                    _resolved_resume = _last_id
+                    print(f"[resume] No prior session for '{_cwd}'.")
+                    print(f"[resume] Resuming most recent session instead: {_last_id}")
+                else:
+                    print(f"[resume] No prior session found.")
+                    print(f"[resume] Starting a fresh session. Use --resume <session_id> to resume a specific session.")
         except Exception as e:
             print(f"[resume] Could not auto-detect session: {e}")
             print(f"[resume] Starting a fresh session.")
