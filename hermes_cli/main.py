@@ -464,7 +464,36 @@ def cmd_chat(args):
 
     # Resolve --resume by title if it's not a direct session ID
     resume_val = getattr(args, "resume", None)
-    if resume_val:
+    if resume_val is True:
+        # Bare --resume (no argument): auto-detect the most recent session for cwd,
+        # falling back to the most recent CLI session overall (handles pre-migration
+        # sessions that have no cwd stored).
+        try:
+            from hermes_state import SessionDB
+            _db = SessionDB()
+            _cwd = os.getcwd()
+            _matched = _db.get_most_recent_session_by_dir(_cwd, source="cli")
+            if _matched:
+                args.resume = _matched["id"]
+                print(f"[resume] Found prior session for '{_cwd}': {_matched['id']}")
+                if _matched.get("title"):
+                    print(f"[resume] Session title: {_matched['title']}")
+            else:
+                # No cwd match — fall back to overall most recent CLI session
+                _last_id = _resolve_last_cli_session()
+                if _last_id:
+                    args.resume = _last_id
+                    print(f"[resume] No prior session for '{_cwd}'.")
+                    print(f"[resume] Resuming most recent session instead: {_last_id}")
+                else:
+                    print(f"[resume] No prior session found.")
+                    print(f"[resume] Starting a fresh session. Use --resume <session_id> to resume a specific session.")
+                    args.resume = None
+        except Exception as _e:
+            print(f"[resume] Could not auto-detect session: {_e}")
+            print(f"[resume] Starting a fresh session.")
+            args.resume = None
+    elif resume_val:
         resolved = _resolve_session_by_name_or_id(resume_val)
         if resolved:
             args.resume = resolved
@@ -3046,9 +3075,14 @@ For more help on a command:
     )
     parser.add_argument(
         "--resume", "-r",
-        metavar="SESSION",
+        dest="resume",
+        nargs="?",
+        const=True,
         default=None,
-        help="Resume a previous session by ID or title"
+        metavar="SESSION",
+        help="Resume a session. With no argument: auto-detect the most recent "
+             "CLI session in the current working directory. "
+             "With an argument: resume that specific session ID or title."
     )
     parser.add_argument(
         "--continue", "-c",
@@ -3130,8 +3164,12 @@ For more help on a command:
     )
     chat_parser.add_argument(
         "--resume", "-r",
-        metavar="SESSION_ID",
-        help="Resume a previous session by ID (shown on exit)"
+        nargs="?",
+        const=True,
+        default=None,
+        metavar="SESSION",
+        help="Resume a session. With no argument: auto-detect by working directory. "
+             "With an argument: resume that specific session ID or title."
     )
     chat_parser.add_argument(
         "--continue", "-c",
@@ -3863,7 +3901,12 @@ For more help on a command:
                 print("No sessions found.")
                 return
             has_titles = any(s.get("title") for s in sessions)
-            if has_titles:
+            has_cwds = any(s.get("cwd") for s in sessions)
+            # Show cwd column only when at least one session has it set
+            if has_cwds:
+                print(f"{'Title' if has_titles else 'Preview':<30} {'Cwd':<35} {'Last Active':<13} {'ID'}")
+                print("─" * 110)
+            elif has_titles:
                 print(f"{'Title':<32} {'Preview':<40} {'Last Active':<13} {'ID'}")
                 print("─" * 110)
             else:
@@ -3871,14 +3914,17 @@ For more help on a command:
                 print("─" * 95)
             for s in sessions:
                 last_active = _relative_time(s.get("last_active"))
-                preview = s.get("preview", "")[:38] if has_titles else s.get("preview", "")[:48]
-                if has_titles:
+                cwd = s.get("cwd") or ""
+                if has_cwds:
+                    preview = (s.get("title") or s.get("preview", ""))[:28] if has_titles else (s.get("preview") or "")[:28]
+                    print(f"{preview:<30} {cwd:<35} {last_active:<13} {s['id']}")
+                elif has_titles:
                     title = (s.get("title") or "—")[:30]
-                    sid = s["id"]
-                    print(f"{title:<32} {preview:<40} {last_active:<13} {sid}")
+                    preview = s.get("preview", "")[:38]
+                    print(f"{title:<32} {preview:<40} {last_active:<13} {s['id']}")
                 else:
-                    sid = s["id"]
-                    print(f"{preview:<50} {last_active:<13} {s['source']:<6} {sid}")
+                    preview = s.get("preview", "")[:48]
+                    print(f"{preview:<50} {last_active:<13} {s['source']:<6} {s['id']}")
 
         elif action == "export":
             if args.session_id:
